@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MY-AGENT — AI Project Builder</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="badge"><span></span> AI SOFTWARE ENGINEER</div>
+      <h1>Tell me what you want to build.</h1>
+      <p>MY-AGENT turns your idea into a structured software development plan.</p>
+      <form id="planner-form">
+        <textarea id="idea" placeholder="Build me a fitness tracking app where users can track workouts, set goals, and view progress..." required></textarea>
+        <button id="build-btn" type="submit">Create Build Plan <span>→</span></button>
+      </form>
+    </section>
+
+    <section id="result" class="result hidden">
+      <div class="result-head">
+        <div>
+          <div class="eyebrow">PLANNING COMPLETE</div>
+          <h2 id="project-name">Your project</h2>
+          <p id="summary"></p>
+        </div>
+        <div id="mode" class="mode">AI</div>
+      </div>
+      <div class="grid">
+        <article><h3>Requirements</h3><ul id="requirements"></ul></article>
+        <article><h3>Pages</h3><ul id="pages"></ul></article>
+        <article class="tasks"><h3>Build order</h3><div id="tasks"></div></article>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
