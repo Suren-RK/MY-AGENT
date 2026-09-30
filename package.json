@@ -8,8 +8,10 @@
     "dev": "node server.js"
   },
   "dependencies": {
+    "@playwright/browser-chromium": "^1.63.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "openai": "^4.77.3"
+    "openai": "^4.77.3",
+    "playwright": "^1.63.0"
   }
 }
