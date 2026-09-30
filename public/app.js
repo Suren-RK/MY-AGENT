@@ -45,7 +45,7 @@ buildProjectButton.addEventListener('click', async () => {
   if (!currentPlan) return;
   buildProjectButton.disabled = true;
   buildProjectButton.textContent = 'Building + testing...';
-  buildStatus.textContent = 'Generating the project, writing files, and running static checks.';
+  buildStatus.textContent = 'Generating files, reviewing the build, opening it in a real browser, testing interactions, and repairing failures if needed.';
   buildResult.classList.add('hidden');
   try {
     const response = await fetch('/api/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: currentPlan }) });
@@ -53,11 +53,13 @@ buildProjectButton.addEventListener('click', async () => {
     if (!response.ok) throw new Error(data.error || 'Build failed');
     buildProjectName.textContent = data.projectName;
     buildSummary.textContent = data.summary || 'Starter project generated.';
-    buildMode.textContent = data.mode === 'ai' ? 'AI BUILD' : 'DEMO BUILD';
+    buildMode.textContent = data.repaired ? 'AI BUILD · AUTO-REPAIRED' : 'AI BUILD';
     generatedFiles.innerHTML = (data.files || []).map(file => `<div class="generated-file"><span>▸</span><code>${file.path}</code><small>${file.content.length} chars</small></div>`).join('');
     testResults.innerHTML = (data.tests || []).map(test => `<div class="test-result ${test.passed ? 'passed' : 'failed'}"><span>${test.passed ? '✓' : '✗'}</span><span>${test.name}</span>${test.error ? `<small>${test.error}</small>` : ''}</div>`).join('');
-    const allPassed = (data.tests || []).every(test => test.passed);
-    buildStatus.textContent = allPassed ? `${data.files.length} files generated. All static checks passed.` : `${data.files.length} files generated. Some checks failed.`;
+    const allPassed = (data.tests || []).length > 0 && (data.tests || []).every(test => test.passed);
+    buildStatus.textContent = allPassed
+      ? `${data.files.length} files generated. Static checks and real browser QA passed.`
+      : `${data.files.length} files generated. Some checks still failed after the repair attempt.`;
     previewButton.classList.remove('hidden');
     buildResult.classList.remove('hidden');
     buildResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
