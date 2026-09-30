@@ -30,14 +30,23 @@ app.post('/api/plan', async (req, res) => {
   const idea = String(req.body?.idea || '').trim();
   if (!idea) return res.status(400).json({ error: 'Please describe the project you want to build.' });
 
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
     return res.json({ ...fallbackPlan(idea), mode: 'fallback' });
   }
 
   try {
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({
+      apiKey,
+      baseURL: 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        'HTTP-Referer': 'http://localhost:3000',
+        'X-OpenRouter-Title': 'MY-AGENT'
+      }
+    });
+
     const response = await client.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      model: process.env.OPENROUTER_MODEL || process.env.OPENAI_MODEL || 'openai/gpt-4o-mini',
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -52,7 +61,7 @@ app.post('/api/plan', async (req, res) => {
     res.json({ ...plan, mode: 'ai' });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'The planning agent failed. Try again.' });
+    res.status(500).json({ error: 'The planning agent failed. Check the server terminal for the OpenRouter error.' });
   }
 });
 
