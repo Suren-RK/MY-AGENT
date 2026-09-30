@@ -32,6 +32,25 @@
         <article><h3>Pages</h3><ul id="pages"></ul></article>
         <article class="tasks"><h3>Build order</h3><div id="tasks"></div></article>
       </div>
+      <div class="build-panel">
+        <div>
+          <div class="eyebrow">NEXT STEP</div>
+          <h3>Turn the plan into a starter project.</h3>
+          <p id="build-status">The builder will generate a small runnable MVP from the plan.</p>
+        </div>
+        <button id="build-project-btn" type="button">🚀 Build Project</button>
+      </div>
+      <section id="build-result" class="build-result hidden">
+        <div class="build-head">
+          <div>
+            <div class="eyebrow">BUILD COMPLETE</div>
+            <h3 id="build-project-name"></h3>
+            <p id="build-summary"></p>
+          </div>
+          <div id="build-mode" class="mode">AI BUILD</div>
+        </div>
+        <div id="generated-files" class="generated-files"></div>
+      </section>
     </section>
   </main>
   <script src="/app.js"></script>
