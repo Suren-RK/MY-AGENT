@@ -112,6 +112,44 @@ async function reviewBuild(plan, files) {
   return { passed: Boolean(review.passed), issues: Array.isArray(review.issues) ? review.issues : [] };
 }
 
+async function reviewVisualDesign(plan, screenshot) {
+  const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) return { passed: true, skipped: true, issues: [] };
+  const client = new OpenAI({
+    apiKey,
+    baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+    defaultHeaders: { 'HTTP-Referer': 'http://localhost:3000', 'X-OpenRouter-Title': 'MY-AGENT' }
+  });
+  const model = process.env.OPENROUTER_VISION_MODEL || 'openai/gpt-4o';
+  const prompt = `You are the visual QA reviewer for an autonomous software builder. Inspect the attached screenshot of the generated app.
+Return ONLY JSON: {"passed":true|false,"issues":["..."]}.
+Judge practical UI quality, not personal taste. Fail only for clear problems such as unrelated or invented UI, broken or placeholder-looking layout, browser-default styling when a polished UI is expected, poor spacing or alignment, unreadable contrast, clipped or overlapping content, missing visible primary controls, confusing hierarchy, or an obviously unfinished MVP.
+For a simple app, a clean minimal design is acceptable. Do not demand animations, gradients, a specific framework, or decorative features.
+Compare the screenshot against this user request and requirements:
+${JSON.stringify({ request: plan.summary, requirements: plan.requirements })}`;
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      response_format: { type: 'json_object' },
+      temperature: 0,
+      messages: [
+        { role: 'system', content: 'You are a strict but fair visual QA reviewer.' },
+        { role: 'user', content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${screenshot.toString('base64')}` } }
+        ] }
+      ]
+    });
+    const text = response.choices?.[0]?.message?.content;
+    if (!text) throw new Error('Visual QA returned an empty response.');
+    const review = JSON.parse(text);
+    return { passed: Boolean(review.passed), skipped: false, issues: Array.isArray(review.issues) ? review.issues : [] };
+  } catch (error) {
+    console.error('Visual QA skipped:', error.message);
+    return { passed: true, skipped: true, issues: [], warning: error.message };
+  }
+}
+
 async function generateBuild(plan, extraInstructions = '') {
   const system = `You are the builder agent of an autonomous software engineer.
 Generate a coherent, runnable MVP that directly implements the user's request.
@@ -209,7 +247,7 @@ async function runBrowserTests(plan, files) {
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext();
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     const consoleErrors = [];
     const pageErrors = [];
@@ -220,6 +258,14 @@ async function runBrowserTests(plan, files) {
     if (!response || !response.ok()) throw new Error(`Generated app returned HTTP ${response?.status() || 'unknown'}.`);
 
     const dom = await page.locator('body').innerHTML();
+    const screenshot = await page.screenshot({ type: 'png', fullPage: true });
+    const visualReview = await reviewVisualDesign(plan, screenshot);
+    if (visualReview.skipped) {
+      results.push({ name: 'Visual QA: screenshot review', passed: true, warning: visualReview.warning || 'Visual QA skipped.' });
+    } else {
+      results.push({ name: 'Visual QA: polished and coherent UI', passed: visualReview.passed, error: visualReview.passed ? undefined : visualReview.issues.join(' | ') });
+    }
+
     const tests = await createBrowserTests(plan, files, dom);
     if (!tests.length) {
       results.push({ name: 'Browser QA plan generated', passed: false, error: 'QA agent did not produce browser tests.' });
@@ -241,10 +287,10 @@ async function runBrowserTests(plan, files) {
             if (!(await locator.first().isVisible())) throw new Error(`Expected visible: ${assertion.selector}`);
           } else if (assertion.type === 'text') {
             const text = await locator.first().innerText();
-            if (!text.includes(String(assertion.contains))) throw new Error(`Expected text "${assertion.contains}" in ${assertion.selector}, got "${text}"`);
+            if (!text.includes(String(assertion.contains))) throw new Error(`Expected text \"${assertion.contains}\" in ${assertion.selector}, got \"${text}\"`);
           } else if (assertion.type === 'notText') {
             const text = await locator.first().innerText().catch(() => '');
-            if (text.includes(String(assertion.contains))) throw new Error(`Unexpected text "${assertion.contains}" in ${assertion.selector}`);
+            if (text.includes(String(assertion.contains))) throw new Error(`Unexpected text \"${assertion.contains}\" in ${assertion.selector}`);
           } else if (assertion.type === 'count') {
             const count = await locator.count();
             if (typeof assertion.min === 'number' && count < assertion.min) throw new Error(`Expected at least ${assertion.min} matching elements, got ${count}`);
@@ -271,9 +317,9 @@ async function runBrowserTests(plan, files) {
 }
 
 async function repairFromFailures(plan, files, failures) {
-  const repair = `The generated app failed real browser QA. Fix ONLY the listed failures while preserving the requested scope.
+  const repair = `The generated app failed real QA. Fix ONLY the listed failures while preserving the requested scope.
 FAILURES:\n${failures.map((failure, i) => `${i + 1}. ${failure.name}: ${failure.error || 'failed'}`).join('\n')}
-Regenerate complete project files. Make the interactions actually work, not just visually appear to work.`;
+Regenerate complete project files. Make the interactions actually work and improve any visual problems identified by Visual QA. Do not add unrelated features.`;
   return generateBuild(plan, repair);
 }
 
