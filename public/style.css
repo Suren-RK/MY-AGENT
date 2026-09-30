@@ -25,6 +25,19 @@ article { padding: 25px; border: 1px solid #20283b; border-radius: 20px; backgro
 article h3 { margin-top: 0; font-size: 15px; color: #c8d0e4; }
 ul { padding-left: 20px; color: #8f99b1; line-height: 1.9; }
 .tasks { grid-column: 1 / -1; }
+.build-panel { margin-top: 18px; padding: 24px; border: 1px solid #20283b; border-radius: 20px; background: linear-gradient(135deg, #0d1220, #10172a); display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.build-panel h3 { margin: 8px 0; color: #e9ecf6; }
+.build-panel p { margin: 0; color: #8f99b1; line-height: 1.6; }
+.build-panel button { width: auto; min-width: 190px; }
+.build-result { margin-top: 18px; padding: 24px; border: 1px solid #20283b; border-radius: 20px; background: #0d1220; }
+.build-head { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+.build-head h3 { margin: 8px 0; font-size: 24px; }
+.build-head p { color: #8f99b1; margin: 0; }
+.generated-files { margin-top: 20px; display: grid; gap: 8px; }
+.generated-file { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid #1d2537; border-radius: 12px; background: #101625; }
+.generated-file code { flex: 1; color: #dfe5f5; }
+.generated-file small { color: #76819c; }
+
 .task { display: flex; align-items: center; gap: 13px; padding: 14px 0; border-bottom: 1px solid #1d2435; }
 .task:last-child { border-bottom: 0; }
 .number { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; background: #171e31; color: #9aa7c8; font-size: 12px; }
