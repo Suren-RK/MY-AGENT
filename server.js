@@ -12,43 +12,69 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const GENERATED_ROOT = path.join(__dirname, 'generated-project');
+const PROMPTS_ROOT = path.join(__dirname, 'prompts');
 
-app.use(express.json({ limit: '4mb' }));
+app.use(express.json({ limit: '6mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+const FALLBACK_PROMPTS = {
+  planner: 'You are the planning brain of an autonomous software engineer. Return JSON with projectName, summary, requirements, pages, tasks, and acceptanceCriteria. Preserve requested scope and do not invent major features.',
+  architect: 'You are the architecture agent. Return JSON with stack, entryPoint, and files containing path, purpose, dependsOn, and implementationNotes. Keep the architecture minimal and runnable.',
+  builder: 'You are the implementation agent. Return ONLY JSON with projectName, summary, and files. Implement the supplied plan and architecture exactly.',
+  debugger: 'You are the debugging agent. Return ONLY JSON with patches containing path, complete replacement content, and reason. Fix only the reported failures.',
+  browserQa: 'You are the browser QA agent. Return ONLY JSON with deterministic browser tests using stable CSS selectors.',
+  visualQa: 'You are the visual QA agent. Return ONLY JSON with passed and issues. Fail only for concrete UI problems.'
+};
+
+async function loadPrompt(name) {
+  try {
+    return await fs.readFile(path.join(PROMPTS_ROOT, `${name}.txt`), 'utf8');
+  } catch (_) {
+    return FALLBACK_PROMPTS[name] || '';
+  }
+}
 
 function fallbackPlan(idea) {
   return {
-    projectName: 'New Project', summary: idea,
-    requirements: ['Clarify the core user flow', 'Define the main data model', 'Build the primary user experience', 'Add validation and error handling', 'Test the critical flows'],
+    projectName: 'New Project',
+    summary: idea,
+    requirements: ['Implement the requested user flow', 'Add validation and error handling', 'Make the primary interaction usable', 'Test the critical flow'],
     pages: ['Home'],
     tasks: [
       { id: 1, title: 'Define project requirements', priority: 'high' },
       { id: 2, title: 'Design the application structure', priority: 'high' },
       { id: 3, title: 'Build the core features', priority: 'high' },
       { id: 4, title: 'Add validation and error handling', priority: 'medium' },
-      { id: 5, title: 'Test the main user flows', priority: 'medium' },
-      { id: 6, title: 'Prepare documentation', priority: 'low' }
-    ]
+      { id: 5, title: 'Test the main user flow', priority: 'medium' }
+    ],
+    acceptanceCriteria: ['The requested primary flow works in a browser.']
   };
 }
 
-async function callModel(system, user) {
+async function callModel(system, user, options = {}) {
   const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('Missing OPENROUTER_API_KEY');
   const client = new OpenAI({
     apiKey,
     baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
-    defaultHeaders: { 'HTTP-Referer': 'http://localhost:3000', 'X-OpenRouter-Title': 'MY-AGENT' }
+    defaultHeaders: {
+      'HTTP-Referer': 'http://localhost:3000',
+      'X-OpenRouter-Title': 'MY-AGENT'
+    }
   });
   const response = await client.chat.completions.create({
-    model: process.env.OPENROUTER_MODEL || process.env.OPENAI_MODEL || 'openai/gpt-4o-mini',
+    model: options.model || process.env.OPENROUTER_MODEL || process.env.OPENAI_MODEL || 'openai/gpt-4o-mini',
     response_format: { type: 'json_object' },
-    temperature: 0.12,
+    temperature: options.temperature ?? 0.12,
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }]
   });
   const text = response.choices?.[0]?.message?.content;
   if (!text) throw new Error('The model returned an empty response.');
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`The model returned invalid JSON: ${error.message}`);
+  }
 }
 
 function cleanRelativePath(value) {
@@ -94,20 +120,39 @@ function validateBuildPayload(payload) {
   };
 }
 
-function buildContext(plan, files) {
+function validateArchitecture(payload) {
+  const files = Array.isArray(payload?.files) ? payload.files.filter(file => cleanRelativePath(file?.path)) : [];
+  if (!files.length) throw new Error('Architecture agent did not return a usable file plan.');
+  return {
+    stack: Array.isArray(payload.stack) ? payload.stack : [],
+    entryPoint: cleanRelativePath(payload.entryPoint) || files[0].path,
+    files
+  };
+}
+
+function buildContext(plan, architecture, files = []) {
   return JSON.stringify({
     request: plan.summary,
     requirements: plan.requirements,
     pages: plan.pages,
     tasks: plan.tasks,
+    acceptanceCriteria: plan.acceptanceCriteria || [],
+    architecture,
     files: files.map(file => ({ path: file.path, content: file.content }))
   });
 }
 
-async function reviewBuild(plan, files) {
+async function createArchitecture(plan) {
+  const system = await loadPrompt('architect');
+  const result = await callModel(system, JSON.stringify(plan));
+  return validateArchitecture(result);
+}
+
+async function reviewBuild(plan, architecture, files) {
   const review = await callModel(
-    'You are the QA reviewer for an autonomous software builder. Review the generated project against the user request. Return ONLY JSON: {"passed":true|false,"issues":["..."]}. Fail if a requested feature is missing, unrelated major features were invented, visible controls have no apparent behavior, or the project is clearly a placeholder. For simple apps, keep scope focused. Do not demand a database, authentication, framework, or extra features unless requested.',
-    buildContext(plan, files)
+    'You are the product QA reviewer for an autonomous software builder. Return ONLY JSON: {"passed":true|false,"issues":["..."]}. Fail if a requested feature or acceptance criterion is missing, unrelated major features were invented, visible controls have no apparent behavior, or the project is clearly a placeholder. Do not demand a database, authentication, framework, or extra features unless the plan requires them.',
+    buildContext(plan, architecture, files),
+    { temperature: 0 }
   );
   return { passed: Boolean(review.passed), issues: Array.isArray(review.issues) ? review.issues : [] };
 }
@@ -115,34 +160,26 @@ async function reviewBuild(plan, files) {
 async function reviewVisualDesign(plan, screenshot) {
   const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
   if (!apiKey) return { passed: true, skipped: true, issues: [] };
+  const system = await loadPrompt('visual-qa');
   const client = new OpenAI({
     apiKey,
     baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
     defaultHeaders: { 'HTTP-Referer': 'http://localhost:3000', 'X-OpenRouter-Title': 'MY-AGENT' }
   });
-  const model = process.env.OPENROUTER_VISION_MODEL || 'openai/gpt-4o';
-  const prompt = `You are the visual QA reviewer for an autonomous software builder. Inspect the attached screenshot of the generated app.
-Return ONLY JSON: {"passed":true|false,"issues":["..."]}.
-Judge practical UI quality, not personal taste. Fail only for clear problems such as unrelated or invented UI, broken or placeholder-looking layout, browser-default styling when a polished UI is expected, poor spacing or alignment, unreadable contrast, clipped or overlapping content, missing visible primary controls, confusing hierarchy, or an obviously unfinished MVP.
-For a simple app, a clean minimal design is acceptable. Do not demand animations, gradients, a specific framework, or decorative features.
-Compare the screenshot against this user request and requirements:
-${JSON.stringify({ request: plan.summary, requirements: plan.requirements })}`;
   try {
     const response = await client.chat.completions.create({
-      model,
+      model: process.env.OPENROUTER_VISION_MODEL || 'openai/gpt-4o',
       response_format: { type: 'json_object' },
       temperature: 0,
       messages: [
-        { role: 'system', content: 'You are a strict but fair visual QA reviewer.' },
+        { role: 'system', content: system },
         { role: 'user', content: [
-          { type: 'text', text: prompt },
+          { type: 'text', text: JSON.stringify({ request: plan.summary, requirements: plan.requirements, acceptanceCriteria: plan.acceptanceCriteria || [] }) },
           { type: 'image_url', image_url: { url: `data:image/png;base64,${screenshot.toString('base64')}` } }
         ] }
       ]
     });
-    const text = response.choices?.[0]?.message?.content;
-    if (!text) throw new Error('Visual QA returned an empty response.');
-    const review = JSON.parse(text);
+    const review = JSON.parse(response.choices?.[0]?.message?.content || '{}');
     return { passed: Boolean(review.passed), skipped: false, issues: Array.isArray(review.issues) ? review.issues : [] };
   } catch (error) {
     console.error('Visual QA skipped:', error.message);
@@ -150,38 +187,24 @@ ${JSON.stringify({ request: plan.summary, requirements: plan.requirements })}`;
   }
 }
 
-async function generateBuild(plan, extraInstructions = '') {
-  const system = `You are the builder agent of an autonomous software engineer.
-Generate a coherent, runnable MVP that directly implements the user's request.
-STRICT PRODUCT RULES:
-1. Implement every explicitly requested feature.
-2. Do NOT invent major features, screens, authentication, login/signup, payments, dashboards, or backend behavior unless the user requested them.
-3. Do not replace the requested app with a generic template.
-4. Every visible button must have a real purpose and working behavior.
-5. For a simple web app, prefer plain HTML/CSS/JavaScript.
-6. Keep the MVP focused and visually polished enough to be immediately usable.
-7. Return ONLY valid JSON with projectName, summary, and files.
-8. files MUST be an array of {"path":"relative/path.ext","content":"complete file text"}.
-9. Never use markdown fences and never omit file contents.
-10. index.html must reference exact generated JS/CSS paths.
-11. Make the app usable immediately after opening index.html; do not require fake login or setup steps unless requested.
-12. Do not put fake sample data into the main interaction unless it helps demonstrate the requested feature and is clearly harmless.
-${extraInstructions}`;
-  const user = JSON.stringify({ projectName: plan.projectName, summary: plan.summary, requirements: plan.requirements, pages: plan.pages, tasks: plan.tasks });
+async function generateBuild(plan, architecture, extraInstructions = '') {
+  const basePrompt = await loadPrompt('builder');
+  const system = `${basePrompt}\n\nAdditional constraints:\n${extraInstructions}`;
+  const user = buildContext(plan, architecture);
 
   let build = await callModel(system, user);
   let validated;
   try {
     validated = validateBuildPayload(build);
   } catch (_) {
-    build = await callModel(system + '\nIMPORTANT: Your previous response was invalid. Return a files array containing complete path/content objects.', user);
+    build = await callModel(`${system}\nYour previous response was invalid. Return a files array containing complete path/content objects.`, user);
     validated = validateBuildPayload(build);
   }
 
-  const review = await reviewBuild(plan, validated.files);
+  const review = await reviewBuild(plan, architecture, validated.files);
   if (!review.passed) {
-    const repair = `${system}\n\nQA REJECTION:\n${review.issues.map((issue, i) => `${i + 1}. ${issue}`).join('\n')}\nRegenerate the project and fix every issue. Do not add unrelated features.`;
-    build = await callModel(repair, user);
+    const repairInstruction = `Product QA rejected the build. Fix every issue below without adding unrelated features:\n${review.issues.map((issue, i) => `${i + 1}. ${issue}`).join('\n')}`;
+    build = await callModel(`${system}\n${repairInstruction}`, user);
     validated = validateBuildPayload(build);
   }
 
@@ -213,7 +236,9 @@ async function testGeneratedProject(files) {
   }
 
   if (index) {
-    const refs = [...index.content.matchAll(/<(?:script|link)[^>]+(?:src|href)=["']([^"']+)["']/gi)].map(match => match[1]).filter(ref => !ref.startsWith('http') && !ref.startsWith('//'));
+    const refs = [...index.content.matchAll(/<(?:script|link)[^>]+(?:src|href)=["']([^"']+)["']/gi)]
+      .map(match => match[1])
+      .filter(ref => !ref.startsWith('http') && !ref.startsWith('//'));
     for (const ref of refs) {
       const clean = ref.split('?')[0].replace(/^\.\//, '');
       const exists = files.some(file => file.path === clean);
@@ -223,26 +248,14 @@ async function testGeneratedProject(files) {
   return results;
 }
 
-async function createBrowserTests(plan, files, dom) {
-  const prompt = `You are an end-to-end QA engineer. Create a small browser test plan for the generated web app.
-Return ONLY JSON: {"tests":[{"name":"...","steps":[...],"assertions":[...]}]}.
-Allowed step actions:
-- {"action":"fill","selector":"CSS SELECTOR","value":"..."}
-- {"action":"click","selector":"CSS SELECTOR"}
-- {"action":"press","selector":"CSS SELECTOR","key":"Enter"}
-- {"action":"check","selector":"CSS SELECTOR"}
-Allowed assertions:
-- {"type":"visible","selector":"CSS SELECTOR"}
-- {"type":"text","selector":"CSS SELECTOR","contains":"TEXT"}
-- {"type":"count","selector":"CSS SELECTOR","min":NUMBER}
-- {"type":"notText","selector":"CSS SELECTOR","contains":"TEXT"}
-Create tests that exercise the user's explicitly requested interactions. Prefer selectors using IDs, names, placeholders, button text via CSS :has-text(), or other stable attributes visible in the DOM. Do not use XPath. Do not invent selectors that are absent from the DOM.
-User plan and requirements:\n${buildContext(plan, files)}\n\nRendered DOM snapshot:\n${dom.slice(0, 30000)}`;
-  const result = await callModel('Generate reliable browser tests from the provided DOM and requirements.', prompt);
+async function createBrowserTests(plan, architecture, files, dom) {
+  const system = await loadPrompt('browser-qa');
+  const prompt = `${system}\n\nProduct context:\n${buildContext(plan, architecture, files)}\n\nRendered DOM snapshot:\n${dom.slice(0, 30000)}`;
+  const result = await callModel(prompt, 'Create the smallest reliable browser test suite for this app.', { temperature: 0 });
   return Array.isArray(result.tests) ? result.tests.slice(0, 8) : [];
 }
 
-async function runBrowserTests(plan, files) {
+async function runBrowserTests(plan, architecture, files) {
   const results = [];
   let browser;
   try {
@@ -266,7 +279,7 @@ async function runBrowserTests(plan, files) {
       results.push({ name: 'Visual QA: polished and coherent UI', passed: visualReview.passed, error: visualReview.passed ? undefined : visualReview.issues.join(' | ') });
     }
 
-    const tests = await createBrowserTests(plan, files, dom);
+    const tests = await createBrowserTests(plan, architecture, files, dom);
     if (!tests.length) {
       results.push({ name: 'Browser QA plan generated', passed: false, error: 'QA agent did not produce browser tests.' });
     }
@@ -275,7 +288,7 @@ async function runBrowserTests(plan, files) {
       try {
         for (const step of test.steps || []) {
           const locator = page.locator(step.selector);
-          if (step.action === 'fill') await locator.first().fill(String(step.value ?? 'QA test task'));
+          if (step.action === 'fill') await locator.first().fill(String(step.value ?? 'QA test value'));
           else if (step.action === 'click') await locator.first().click();
           else if (step.action === 'press') await locator.first().press(step.key || 'Enter');
           else if (step.action === 'check') await locator.first().check();
@@ -303,11 +316,9 @@ async function runBrowserTests(plan, files) {
       await page.reload({ waitUntil: 'networkidle' }).catch(() => {});
     }
 
-    if (consoleErrors.length || pageErrors.length) {
-      results.push({ name: 'Browser console errors', passed: false, error: [...consoleErrors, ...pageErrors].slice(0, 5).join(' | ') });
-    } else {
-      results.push({ name: 'Browser console errors', passed: true });
-    }
+    results.push(consoleErrors.length || pageErrors.length
+      ? { name: 'Browser console errors', passed: false, error: [...consoleErrors, ...pageErrors].slice(0, 5).join(' | ') }
+      : { name: 'Browser console errors', passed: true });
   } catch (error) {
     results.push({ name: 'Browser launch / page load', passed: false, error: `${error.message}. If Chromium is missing, run: npx playwright install chromium` });
   } finally {
@@ -316,21 +327,37 @@ async function runBrowserTests(plan, files) {
   return results;
 }
 
-async function repairFromFailures(plan, files, failures) {
-  const repair = `The generated app failed real QA. Fix ONLY the listed failures while preserving the requested scope.
-FAILURES:\n${failures.map((failure, i) => `${i + 1}. ${failure.name}: ${failure.error || 'failed'}`).join('\n')}
-Regenerate complete project files. Make the interactions actually work and improve any visual problems identified by Visual QA. Do not add unrelated features.`;
-  return generateBuild(plan, repair);
+function applyPatches(files, patches) {
+  const next = files.map(file => ({ ...file }));
+  for (const patch of patches) {
+    const patchPath = cleanRelativePath(patch?.path);
+    if (!patchPath || typeof patch?.content !== 'string') continue;
+    const index = next.findIndex(file => file.path === patchPath);
+    if (index >= 0) next[index] = { path: patchPath, content: patch.content };
+    else next.push({ path: patchPath, content: patch.content });
+  }
+  return next;
+}
+
+async function repairFromFailures(plan, architecture, files, failures) {
+  const system = await loadPrompt('debugger');
+  const failureText = failures.map((failure, i) => `${i + 1}. ${failure.name}: ${failure.error || 'failed'}`).join('\n');
+  const result = await callModel(
+    system,
+    `${buildContext(plan, architecture, files)}\n\nQA FAILURES:\n${failureText}`,
+    { temperature: 0.05 }
+  );
+  const patches = Array.isArray(result.patches) ? result.patches : [];
+  if (!patches.length) return generateBuild(plan, architecture, `QA failures could not be patched directly. Rebuild carefully and fix:\n${failureText}`);
+  return { projectName: plan.projectName, summary: plan.summary, files: applyPatches(files, patches) };
 }
 
 app.post('/api/plan', async (req, res) => {
   const idea = String(req.body?.idea || '').trim();
   if (!idea) return res.status(400).json({ error: 'Please describe the project you want to build.' });
   try {
-    const plan = await callModel(
-      'You are the planning brain of an autonomous software engineer. Convert the user idea into a concrete implementation plan. Do not invent major features. Return JSON with projectName, summary, requirements (array of strings), pages (array of strings), and tasks (array of objects with id, title, priority where priority is high, medium, or low). Requirements must explicitly cover every feature the user asked for.',
-      idea
-    );
+    const system = await loadPrompt('planner');
+    const plan = await callModel(system, idea);
     res.json({ ...plan, mode: 'ai' });
   } catch (error) {
     console.error(error);
@@ -343,21 +370,26 @@ app.post('/api/build', async (req, res) => {
   const plan = req.body?.plan;
   if (!plan || !Array.isArray(plan.tasks) || !plan.tasks.length) return res.status(400).json({ error: 'A valid build plan is required.' });
   try {
-    let build = await generateBuild(plan);
+    const architecture = await createArchitecture(plan);
+    let build = await generateBuild(plan, architecture);
     await writeGeneratedProject(build.files);
+
     let tests = await testGeneratedProject(build.files);
-    let browserTests = await runBrowserTests(plan, build.files);
+    let browserTests = await runBrowserTests(plan, architecture, build.files);
     tests = [...tests, ...browserTests];
 
-    const failures = tests.filter(test => !test.passed);
-    if (failures.length) {
-      console.log(`QA found ${failures.length} failure(s). Asking builder to repair.`);
-      build = await repairFromFailures(plan, build.files, failures);
+    let repaired = false;
+    let failures = tests.filter(test => !test.passed);
+    for (let attempt = 1; failures.length && attempt <= 2; attempt += 1) {
+      console.log(`QA found ${failures.length} failure(s). Starting targeted repair ${attempt}/2.`);
+      build = await repairFromFailures(plan, architecture, build.files, failures);
       await writeGeneratedProject(build.files);
-      tests = [...await testGeneratedProject(build.files), ...await runBrowserTests(plan, build.files)];
+      tests = [...await testGeneratedProject(build.files), ...await runBrowserTests(plan, architecture, build.files)];
+      failures = tests.filter(test => !test.passed);
+      repaired = true;
     }
 
-    res.json({ ...build, tests, mode: 'ai', repaired: failures.length > 0 });
+    res.json({ ...build, architecture, tests, mode: 'ai', repaired, repairAttempts: repaired ? 1 : 0, qaPassed: failures.length === 0 });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message || 'The builder agent failed. Check the server terminal.' });

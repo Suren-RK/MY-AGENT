@@ -1,41 +1,85 @@
 # MY-AGENT 🚀
 
-MY-AGENT is an AI Project Builder that turns a natural-language app idea into a structured plan and generated project.
+MY-AGENT is an AI software engineering agent that turns a natural-language app idea into a planned, generated, tested, and repaired project.
 
-The goal is to make the agent behave more like an autonomous software engineer: understand the idea, plan the work, generate the project, test it in a real browser, review the result, and repair failures.
+The key idea is simple: **don't just ask an AI to write code. Give it a software-engineering loop.**
 
-## Current Flow
+## Agent Pipeline
 
 ```text
-Idea
-  ↓
-Plan
-  ↓
-Generate
-  ↓
-Static QA
-  ↓
-Browser QA
-  ↓
+User idea
+   ↓
+Planner prompt
+   ↓
+Structured product spec + acceptance criteria
+   ↓
+Architecture prompt
+   ↓
+File/component plan
+   ↓
+Builder prompt
+   ↓
+Runnable project
+   ↓
+Static checks
+   ↓
+Real browser QA
+   ↓
 Visual QA
-  ↓
-Repair failures
-  ↓
-Generated App
+   ↓
+Debugger prompt
+   ↓
+Targeted file patches
+   ↓
+Re-test
+   ↓
+Generated app
 ```
 
-## What it can do
+## Why the prompt-driven architecture?
 
-- Accept an application idea in natural language
-- Convert the idea into structured requirements and development tasks
-- Generate project files with an AI coding agent
-- Write the generated project to a local workspace
-- Run browser-based checks against the generated app
-- Check JavaScript syntax and asset references
-- Capture screenshots for visual review
-- Use AI visual review to identify obvious UI problems
-- Retry generation when automated QA finds failures
+One-shot code generation can produce plausible-looking code that is incomplete, invents features, or breaks when the browser actually uses it. MY-AGENT separates the responsibilities instead:
+
+- **Planner** defines what should be built.
+- **Architect** defines the smallest file structure needed.
+- **Builder** implements that specification.
+- **Browser QA** interacts with the real generated application.
+- **Visual QA** checks the rendered UI.
+- **Debugger** receives concrete failures and patches only the files that need changes.
+
+This keeps the model's context focused and makes failures useful instead of throwing the whole project away and starting from scratch.
+
+## Prompt Library
+
+The agent's core instructions live in version-controlled prompt files:
+
+```text
+prompts/
+├── planner.txt
+├── architect.txt
+├── builder.txt
+├── browser-qa.txt
+├── visual-qa.txt
+└── debugger.txt
+```
+
+That means improving MY-AGENT does not require rewriting the orchestration code every time. The prompts are part of the product and can be iterated independently.
+
+## Current Capabilities
+
+- Accept a project idea in natural language
+- Produce structured requirements and acceptance criteria
+- Create a minimal architecture before coding
+- Generate complete project files
+- Validate JavaScript syntax and asset references
+- Launch the generated app in Chromium with Playwright
+- Generate browser tests from the real DOM
+- Run those tests against the generated app
+- Capture screenshots for visual QA
+- Apply targeted debugger patches when QA fails
+- Retry the repair loop instead of blindly regenerating everything
 - Open the generated application directly in the browser
+- Use OpenRouter-compatible models through the OpenAI SDK
 
 ## Example
 
@@ -43,55 +87,53 @@ Input:
 
 > Build a simple todo app where users can add, complete, and delete tasks.
 
-MY-AGENT can turn that idea into a generated project containing the required HTML, CSS, and JavaScript, then run automated checks against it.
-
-## Why I'm Building This
-
-Most AI coding tools can generate code. MY-AGENT is being built around a different idea:
-
-**Don't just generate code. Build it, run it, test it, inspect it, and improve it.**
-
-The long-term goal is to make the agent capable of taking a project from an idea to a usable implementation with as little manual intervention as possible.
-
-## Roadmap
-
-- [x] Natural-language project planning
-- [x] AI project generation
-- [x] Static project checks
-- [x] Real browser testing
-- [x] Screenshot-based visual QA pipeline
-- [x] Automatic repair after QA failures
-- [ ] Stronger visual QA reliability
-- [ ] Multi-file debugging agent
-- [ ] Better project persistence
-- [ ] Git/GitHub project workflow automation
-- [ ] Production deployment workflow
+The agent should first turn that sentence into explicit acceptance criteria, design a small file structure, generate the app, interact with it in a real browser, and patch failures before returning the result.
 
 ## Development
 
-Clone the repository and install dependencies:
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-Create a `.env` file from `.env.example` and add your OpenRouter API key.
+Create `.env` from `.env.example` and add your OpenRouter API key.
 
-Then start the agent:
+Then run:
 
 ```bash
 npm start
 ```
 
-The local application runs on:
+The local agent runs at:
 
 ```text
 http://localhost:3000
 ```
 
+If Playwright browsers are not installed yet:
+
+```bash
+npx playwright install chromium
+```
+
+## Roadmap
+
+- [x] Prompt-driven planning
+- [x] Architecture stage
+- [x] AI project generation
+- [x] Static checks
+- [x] Real browser QA
+- [x] Screenshot-based visual QA
+- [x] Targeted multi-file debugging loop
+- [ ] Persistent project workspace and version history
+- [ ] Git/GitHub workflow automation
+- [ ] Better cross-framework support
+- [ ] Production deployment workflow
+
 ## Status
 
-🚧 **Active development** — the core build → test → review loop is being developed and improved continuously.
+🚧 **Active development** — the goal is to make the build → test → debug loop increasingly reliable rather than relying on one-shot code generation.
 
 ## License
 
