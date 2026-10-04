@@ -4,8 +4,8 @@
   "private": true,
   "description": "AI Project Builder Agent",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node start.js",
+    "dev": "node start.js"
   },
   "dependencies": {
     "@playwright/browser-chromium": "^1.63.0",
