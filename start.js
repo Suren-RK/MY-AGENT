@@ -4,27 +4,37 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const providers = {
+  omniroute: {
+    apiKey: null,
+    baseUrl: process.env.OMNIROUTE_BASE_URL || 'http://localhost:20128/v1',
+    model: process.env.OMNIROUTE_MODEL || 'auto',
+    visionModel: process.env.OMNIROUTE_VISION_MODEL || process.env.OMNIROUTE_MODEL || 'auto',
+    requiresApiKey: false
+  },
   openrouter: {
     apiKey: 'OPENROUTER_API_KEY',
     baseUrl: 'https://openrouter.ai/api/v1',
     model: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini',
-    visionModel: process.env.OPENROUTER_VISION_MODEL || 'openai/gpt-4o'
+    visionModel: process.env.OPENROUTER_VISION_MODEL || 'openai/gpt-4o',
+    requiresApiKey: true
   },
   groq: {
     apiKey: 'GROQ_API_KEY',
     baseUrl: 'https://api.groq.com/openai/v1',
     model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
-    visionModel: process.env.GROQ_VISION_MODEL || process.env.GROQ_MODEL || 'openai/gpt-oss-120b'
+    visionModel: process.env.GROQ_VISION_MODEL || process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+    requiresApiKey: true
   },
   custom: {
     apiKey: 'CUSTOM_API_KEY',
     baseUrl: process.env.CUSTOM_BASE_URL,
     model: process.env.CUSTOM_MODEL,
-    visionModel: process.env.CUSTOM_VISION_MODEL || process.env.CUSTOM_MODEL
+    visionModel: process.env.CUSTOM_VISION_MODEL || process.env.CUSTOM_MODEL,
+    requiresApiKey: true
   }
 };
 
-const providerName = String(process.env.LLM_PROVIDER || 'openrouter').toLowerCase();
+const providerName = String(process.env.LLM_PROVIDER || 'omniroute').toLowerCase();
 const provider = providers[providerName];
 
 if (!provider) {
@@ -33,8 +43,9 @@ if (!provider) {
   process.exit(1);
 }
 
-const apiKey = process.env[provider.apiKey];
-if (!apiKey) {
+const apiKey = provider.apiKey ? process.env[provider.apiKey] : 'omniroute-local';
+
+if (provider.requiresApiKey && !apiKey) {
   console.error(`Missing ${provider.apiKey} for provider "${providerName}".`);
   process.exit(1);
 }
@@ -44,9 +55,14 @@ if (!provider.baseUrl) {
   process.exit(1);
 }
 
+if (!provider.model) {
+  console.error(`Missing model for provider "${providerName}".`);
+  process.exit(1);
+}
+
 // server.js already uses the OpenAI SDK. These normalized variables let the
-// same agent code work with any OpenAI-compatible provider without duplicating
-// provider logic throughout the planner, builder, debugger and QA pipeline.
+// same agent code talk to a direct provider or to an OpenAI-compatible gateway.
+// OmniRoute is intentionally kept outside this repository as a separate service.
 process.env.OPENROUTER_API_KEY = apiKey;
 process.env.OPENROUTER_BASE_URL = provider.baseUrl;
 process.env.OPENROUTER_MODEL = provider.model;
@@ -54,6 +70,7 @@ process.env.OPENROUTER_VISION_MODEL = provider.visionModel;
 
 console.log(`MY-AGENT LLM provider: ${providerName}`);
 console.log(`MY-AGENT model: ${provider.model}`);
+console.log(`MY-AGENT LLM endpoint: ${provider.baseUrl}`);
 
 const child = spawn(process.execPath, ['server.js'], {
   stdio: 'inherit',
