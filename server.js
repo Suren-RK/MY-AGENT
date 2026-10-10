@@ -362,7 +362,7 @@ app.post('/api/plan', async (req, res) => {
   } catch (error) {
     console.error(error);
     if (!process.env.OPENROUTER_API_KEY && !process.env.OPENAI_API_KEY) return res.json({ ...fallbackPlan(idea), mode: 'fallback' });
-    res.status(500).json({ error: 'The planning agent failed. Check the server terminal for the OpenRouter error.' });
+    res.status(500).json({ error: 'The planning agent failed. Check the server terminal for the provider error.' });
   }
 });
 
@@ -392,7 +392,7 @@ app.post('/api/build', async (req, res) => {
     res.json({ ...build, architecture, tests, mode: 'ai', repaired, repairAttempts: repaired ? 1 : 0, qaPassed: failures.length === 0 });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: error.message || 'The builder agent failed. Check the server terminal.' });
+    res.status(500).json({ error: error.message || 'The builder agent failed. Check the server terminal and confirm your selected LLM provider is running.' });
   }
 });
 
