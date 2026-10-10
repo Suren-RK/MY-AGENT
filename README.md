@@ -36,11 +36,62 @@ Re-test
 Generated app
 ```
 
-## How MY-AGENT uses an LLM
+## LLM providers
 
-MY-AGENT talks directly to an OpenAI-compatible model API. There is no separate gateway service required.
+MY-AGENT uses the OpenAI SDK with an OpenAI-compatible chat-completions endpoint. **Ollama is the default provider**, so the main workflow can run locally without a cloud API key. Groq remains available as an optional cloud provider, with OpenRouter and custom compatible endpoints supported too.
 
-For the easiest starting setup, use **Groq**. OpenRouter and other OpenAI-compatible providers are also supported.
+### Recommended local setup for an 8 GB RAM PC
+
+- Coding model: `qwen2.5-coder:3b` — a relatively lightweight coding model.
+- Vision QA model: `qwen3-vl:2b` — a small vision-language model for screenshot review.
+- Ollama endpoint: `http://localhost:11434/v1`.
+
+These models can still be slow on CPU-only inference, and the vision model may put pressure on memory. Close memory-heavy apps if needed. AMD GPU acceleration depends on the specific GPU, driver, and Ollama support; the setup should also be able to run without relying on GPU acceleration.
+
+### Install and run Ollama
+
+Install Ollama for your operating system from [ollama.com/download](https://ollama.com/download), then open a terminal and download the models:
+
+```bash
+ollama pull qwen2.5-coder:3b
+ollama pull qwen3-vl:2b
+```
+
+Ollama normally runs as a background service. Check that the local API is available at `http://localhost:11434`. You can list installed models with:
+
+```bash
+ollama list
+```
+
+### Configure MY-AGENT for Ollama
+
+Copy `.env.example` to `.env` if you have not already done so. Set:
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=qwen2.5-coder:3b
+OLLAMA_VISION_MODEL=qwen3-vl:2b
+```
+
+No Ollama API key is needed. The OpenAI SDK requires a non-empty key value, so MY-AGENT supplies a local placeholder that Ollama ignores.
+
+### Switch to Groq when you want cloud inference
+
+Add your real Groq key to your local `.env`, then change the provider:
+
+```env
+LLM_PROVIDER=groq
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_VISION_MODEL=qwen/qwen3.8-27b
+```
+
+Restart MY-AGENT after changing provider settings. The provider is selected at startup; Groq is optional and is not automatically called as a fallback if Ollama fails.
+
+Other supported providers:
+- `openrouter`: set `OPENROUTER_API_KEY` and optionally override its model names.
+- `custom`: set `CUSTOM_API_KEY`, `CUSTOM_BASE_URL`, and `CUSTOM_MODEL`.
 
 ## Why the prompt-driven architecture?
 
@@ -86,7 +137,7 @@ That means improving MY-AGENT does not require rewriting the orchestration code 
 - Retry the repair loop instead of blindly regenerating everything
 - Open the generated application directly in the browser
 - Use OpenAI-compatible models through the OpenAI SDK
-- Connect directly to Groq, OpenRouter, or a custom OpenAI-compatible endpoint
+- Connect to local Ollama, Groq, OpenRouter, or a custom OpenAI-compatible endpoint
 
 ## Example
 
@@ -104,16 +155,7 @@ Install dependencies:
 npm install
 ```
 
-Create a local `.env` file from `.env.example`, then add your provider API key. For Groq, set:
-
-```env
-LLM_PROVIDER=groq
-GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=openai/gpt-oss-120b
-GROQ_VISION_MODEL=qwen/qwen3.8-27b
-```
-
-Start MY-AGENT:
+Configure Ollama as shown above, then start MY-AGENT:
 
 ```bash
 npm start
@@ -141,6 +183,7 @@ npx playwright install chromium
 - [x] Screenshot-based visual QA
 - [x] Targeted multi-file debugging loop
 - [x] Direct OpenAI-compatible LLM provider support
+- [x] Local Ollama provider
 - [ ] More robust structured-output parsing and retries
 - [ ] Persistent project workspace and version history
 - [ ] Git/GitHub workflow automation
