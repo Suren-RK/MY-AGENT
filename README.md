@@ -36,68 +36,11 @@ Re-test
 Generated app
 ```
 
-## LLM Gateway Architecture
+## How MY-AGENT uses an LLM
 
-MY-AGENT can use **OmniRoute as a separate OpenAI-compatible LLM gateway**.
+MY-AGENT talks directly to an OpenAI-compatible model API. There is no separate gateway service required.
 
-```text
-                    MY-AGENT
-                       │
-                       │ OpenAI-compatible API
-                       ▼
-                 ┌────────────┐
-                 │ OmniRoute  │
-                 │ :20128     │
-                 └─────┬──────┘
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-        Groq       OpenRouter    Other providers
-          │            │            │
-          └────────────┼────────────┘
-                       ▼
-                 Selected model
-                       │
-                       ▼
-                    MY-AGENT
-```
-
-This keeps the agent's software-engineering responsibilities separate from provider routing. MY-AGENT owns planning, architecture, generation, browser QA, visual QA, and repair; OmniRoute owns the LLM gateway/provider layer.
-
-**Recommended:** keep OmniRoute as a separate project/service rather than copying its entire source tree into MY-AGENT.
-
-### Run OmniRoute separately
-
-Clone and run OmniRoute using its official installation instructions:
-
-https://github.com/diegosouzapw/OmniRoute
-
-By default, OmniRoute exposes its OpenAI-compatible API at:
-
-```text
-http://localhost:20128/v1
-```
-
-Then configure MY-AGENT:
-
-```env
-LLM_PROVIDER=omniroute
-OMNIROUTE_BASE_URL=http://localhost:20128/v1
-OMNIROUTE_MODEL=auto
-OMNIROUTE_VISION_MODEL=auto
-```
-
-MY-AGENT also keeps direct-provider support for development and fallback experiments:
-
-```env
-LLM_PROVIDER=groq
-```
-
-or:
-
-```env
-LLM_PROVIDER=openrouter
-```
+For the easiest starting setup, use **Groq**. OpenRouter and other OpenAI-compatible providers are also supported.
 
 ## Why the prompt-driven architecture?
 
@@ -143,8 +86,7 @@ That means improving MY-AGENT does not require rewriting the orchestration code 
 - Retry the repair loop instead of blindly regenerating everything
 - Open the generated application directly in the browser
 - Use OpenAI-compatible models through the OpenAI SDK
-- Connect to OmniRoute as a separate LLM gateway
-- Keep direct Groq/OpenRouter/custom-provider adapters for development
+- Connect directly to Groq, OpenRouter, or a custom OpenAI-compatible endpoint
 
 ## Example
 
@@ -162,11 +104,16 @@ Install dependencies:
 npm install
 ```
 
-Create `.env` from `.env.example`.
+Create a local `.env` file from `.env.example`, then add your provider API key. For Groq, set:
 
-For the recommended setup, start OmniRoute separately and make sure its API is available at `http://localhost:20128/v1`.
+```env
+LLM_PROVIDER=groq
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_VISION_MODEL=qwen/qwen3.8-27b
+```
 
-Then run MY-AGENT:
+Start MY-AGENT:
 
 ```bash
 npm start
@@ -193,8 +140,8 @@ npx playwright install chromium
 - [x] Real browser QA
 - [x] Screenshot-based visual QA
 - [x] Targeted multi-file debugging loop
-- [x] OpenAI-compatible LLM gateway support
-- [x] OmniRoute integration
+- [x] Direct OpenAI-compatible LLM provider support
+- [ ] More robust structured-output parsing and retries
 - [ ] Persistent project workspace and version history
 - [ ] Git/GitHub workflow automation
 - [ ] Better cross-framework support
