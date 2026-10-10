@@ -4,13 +4,6 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const providers = {
-  omniroute: {
-    apiKey: null,
-    baseUrl: process.env.OMNIROUTE_BASE_URL || 'http://localhost:20128/v1',
-    model: process.env.OMNIROUTE_MODEL || 'auto',
-    visionModel: process.env.OMNIROUTE_VISION_MODEL || process.env.OMNIROUTE_MODEL || 'auto',
-    requiresApiKey: false
-  },
   openrouter: {
     apiKey: 'OPENROUTER_API_KEY',
     baseUrl: 'https://openrouter.ai/api/v1',
@@ -22,7 +15,7 @@ const providers = {
     apiKey: 'GROQ_API_KEY',
     baseUrl: 'https://api.groq.com/openai/v1',
     model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
-    visionModel: process.env.GROQ_VISION_MODEL || process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+    visionModel: process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b',
     requiresApiKey: true
   },
   custom: {
@@ -34,7 +27,7 @@ const providers = {
   }
 };
 
-const providerName = String(process.env.LLM_PROVIDER || 'omniroute').toLowerCase();
+const providerName = String(process.env.LLM_PROVIDER || 'groq').toLowerCase();
 const provider = providers[providerName];
 
 if (!provider) {
@@ -43,7 +36,7 @@ if (!provider) {
   process.exit(1);
 }
 
-const apiKey = provider.apiKey ? process.env[provider.apiKey] : 'omniroute-local';
+const apiKey = process.env[provider.apiKey];
 
 if (provider.requiresApiKey && !apiKey) {
   console.error(`Missing ${provider.apiKey} for provider "${providerName}".`);
@@ -60,9 +53,7 @@ if (!provider.model) {
   process.exit(1);
 }
 
-// server.js already uses the OpenAI SDK. These normalized variables let the
-// same agent code talk to a direct provider or to an OpenAI-compatible gateway.
-// OmniRoute is intentionally kept outside this repository as a separate service.
+// Normalize provider settings for the OpenAI SDK client used by server.js.
 process.env.OPENROUTER_API_KEY = apiKey;
 process.env.OPENROUTER_BASE_URL = provider.baseUrl;
 process.env.OPENROUTER_MODEL = provider.model;
